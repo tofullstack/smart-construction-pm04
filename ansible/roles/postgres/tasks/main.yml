@@ -1,0 +1,41 @@
+---
+- name: Diretórios do banco
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ db_dir }}", mode: "0750" }
+    - { path: "{{ db_dir }}/secrets", mode: "0700" }
+
+- name: Script de inicialização do repositório (cria o papel smart_api)
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/backend/docker/init-db.sh"
+    dest: "{{ db_dir }}/init-db.sh"
+    mode: "0755"
+
+# 0444 como no setup original: o diretório 0700 protege no host e o
+# PostgreSQL (usuário sem root) consegue ler o arquivo montado como secret.
+- name: Senhas do banco como arquivos de secret
+  ansible.builtin.copy:
+    dest: "{{ db_dir }}/secrets/{{ item }}"
+    content: "{{ smart_secrets[item] }}\n"
+    mode: "0444"
+  loop:
+    - migration-password
+    - api-password
+  no_log: true
+
+- name: Compose do PostgreSQL
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ db_dir }}/compose.yml"
+    mode: "0644"
+
+- name: Subir PostgreSQL 17 (publicado só no IP privado)
+  community.docker.docker_compose_v2:
+    project_src: "{{ db_dir }}"
+    state: present
+    pull: missing
+    wait: true
+    wait_timeout: 180

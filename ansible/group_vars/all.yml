@@ -1,0 +1,54 @@
+---
+# Parâmetros da pipeline (chegam como variáveis de ambiente do job)
+env_name: "{{ lookup('env', 'ENV_NAME') | default('dev', true) }}"
+docker_tag: "{{ lookup('env', 'DOCKER_TAG') }}"
+update_os: "{{ lookup('env', 'UPDATE_OS') | default('false', true) }}"
+extra_packages: "{{ lookup('env', 'EXTRA_PACKAGES') }}"
+run_backup: "{{ lookup('env', 'RUN_BACKUP') | default('false', true) }}"
+
+# Saídas do Terraform / variáveis do repositório
+backup_bucket: "{{ lookup('env', 'BACKUP_BUCKET') }}"
+state_bucket: "{{ lookup('env', 'STATE_BUCKET') }}"
+duckdns_subdomain: "{{ lookup('env', 'DUCKDNS_SUBDOMAIN') }}"
+domain: "{{ duckdns_subdomain }}.duckdns.org"
+letsencrypt_email: "{{ lookup('env', 'LETSENCRYPT_EMAIL') }}"
+registry: "ghcr.io/{{ lookup('env', 'GHCR_OWNER') }}"
+
+# Caminhos
+repo_root: "{{ playbook_dir }}/.."  # o Ansible roda dentro do repositório da aplicação
+data_dir: /srv/data                  # disco EBS de dados (inclui o data-root do Docker)
+app_dir: /opt/smart-construction
+db_dir: /opt/smart-db
+
+# Banco (mesmos nomes do compose.yaml original)
+postgres_db: smart_construction
+postgres_migrator: smart_migrator
+postgres_runtime_user: smart_api
+
+# Credenciais: um único segredo mestre no GitHub (SMART_SECRETS_SEED) gera,
+# de forma determinística, cada credencial que o setup local criaria em .secrets/.
+# Mesmo seed => mesmas credenciais em toda execução (necessário para o banco persistido).
+secret_seed: "{{ lookup('env', 'SMART_SECRETS_SEED') }}"
+smart_secrets:
+  migration-password: "{{ (secret_seed ~ ':migration-password') | hash('sha256') }}"
+  api-password: "{{ (secret_seed ~ ':api-password') | hash('sha256') }}"
+  s3-bootstrap-access-key: "{{ (secret_seed ~ ':s3-bootstrap-access-key') | hash('sha256') }}"
+  s3-bootstrap-secret-key: "{{ (secret_seed ~ ':s3-bootstrap-secret-key') | hash('sha256') }}"
+  s3-api-access-key: "{{ (secret_seed ~ ':s3-api-access-key') | hash('sha256') }}"
+  s3-api-secret-key: "{{ (secret_seed ~ ':s3-api-secret-key') | hash('sha256') }}"
+  s3-admin-password: "{{ (secret_seed ~ ':s3-admin-password') | hash('sha256') }}"
+  storage-access-key: "{{ (secret_seed ~ ':storage-access-key') | hash('sha256') }}"
+  storage-secret-key: "{{ (secret_seed ~ ':storage-secret-key') | hash('sha256') }}"
+  storage-admin-password: "{{ (secret_seed ~ ':storage-admin-password') | hash('sha256') }}"
+
+# Pacotes sempre instalados
+base_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - dnsutils
+  - netcat-openbsd
+  - htop
+  - unzip
+  - certbot

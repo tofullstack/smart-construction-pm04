@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Gerado pelo Ansible — backup {{ backup_kind }} para s3://{{ backup_bucket }}
+set -euo pipefail
+
+TS=$(date +%Y%m%d-%H%M%S)
+DEST={{ data_dir }}/backups
+BUCKET={{ backup_bucket }}
+AWS=/snap/bin/aws
+mkdir -p "$DEST"
+
+{% if backup_kind == 'postgres' %}
+FILE="$DEST/db-$TS.dump"
+docker compose --project-directory {{ db_dir }} exec -T db \
+  pg_dump -U {{ postgres_migrator }} -d {{ postgres_db }} -Fc > "$FILE"
+$AWS s3 cp "$FILE" "s3://$BUCKET/postgres/db-$TS.dump" --only-show-errors
+$AWS s3 cp "$FILE" "s3://$BUCKET/postgres/latest.dump" --only-show-errors
+find "$DEST" -name 'db-*.dump' -mtime +7 -delete
+{% else %}
+# Volumes do Docker (data-root no disco EBS): imagens editoriais e arquivos privados dos cadastros
+FILE="$DEST/storage-$TS.tgz"
+tar -czf "$FILE" -C {{ data_dir }}/docker/volumes \
+  smart-construction_storage-data smart-construction_private-storage-data
+$AWS s3 cp "$FILE" "s3://$BUCKET/storage/storage-$TS.tgz" --only-show-errors
+$AWS s3 cp "$FILE" "s3://$BUCKET/storage/latest.tgz" --only-show-errors
+find "$DEST" -name 'storage-*.tgz' -mtime +7 -delete
+{% endif %}
+
+echo "backup ok: $FILE ($(du -h "$FILE" | cut -f1))"

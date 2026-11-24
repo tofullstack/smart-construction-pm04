@@ -1,0 +1,65 @@
+---
+# O data-root do Docker fica no disco EBS: volumes nomeados (banco, imagens,
+# arquivos privados) sobrevivem a reinícios, atualizações e troca de tipo da VM.
+- name: Diretório de configuração do Docker
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    mode: "0755"
+
+- name: Docker guardando dados no disco persistente
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+    content: |
+      {
+        "data-root": "{{ data_dir }}/docker",
+        "log-driver": "local"
+      }
+  register: daemon_json
+
+- name: Diretório de chaves do apt
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Chave GPG oficial do Docker
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Repositório oficial do Docker
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    filename: docker
+    state: present
+
+- name: Instalar Docker Engine e plugin Compose
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+
+- name: Reiniciar o Docker se a configuração mudou
+  ansible.builtin.service:
+    name: docker
+    state: restarted
+  when: daemon_json.changed
+
+- name: Docker ativo na inicialização
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Usuário ubuntu no grupo docker
+  ansible.builtin.user:
+    name: ubuntu
+    groups: docker
+    append: true

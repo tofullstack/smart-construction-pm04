@@ -1,0 +1,229 @@
+# Pipeline principal: Terraform (provisiona/atualiza/encerra) -> Ansible (configura/mantém).
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "apply = criar/atualizar | plan = só mostrar | destroy = encerrar"
+        type: choice
+        options: [apply, plan, destroy]
+        default: apply
+      environment:
+        description: "Ambiente de destino"
+        type: choice
+        options: [dev, homolog, prod]
+        default: dev
+      instance_name:
+        description: "Nome da VM da aplicação"
+        default: vm-smart-app
+      app_instance_type:
+        description: "Tipo da VM da aplicação"
+        default: t3.small
+      db_instance_type:
+        description: "Tipo da VM do banco"
+        default: t3.micro
+      docker_tag:
+        description: "Tag das imagens no GHCR (ex.: sha-1a2b3c4)"
+        required: true
+      update_os:
+        description: "Aplicar atualizações do sistema operacional"
+        type: boolean
+        default: false
+      extra_packages:
+        description: "Pacotes extras, separados por vírgula"
+        default: "curl,git,unzip"
+      run_backup:
+        description: "Executar um backup ao final"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-2
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  terraform:
+    name: Terraform (${{ inputs.action }} / ${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: terraform
+    env:
+      TF_VAR_environment: ${{ inputs.environment }}
+      TF_VAR_instance_name: ${{ inputs.instance_name }}
+      TF_VAR_app_instance_type: ${{ inputs.app_instance_type }}
+      TF_VAR_db_instance_type: ${{ inputs.db_instance_type }}
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_VAR_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+    outputs:
+      app_public_ip: ${{ steps.out.outputs.app_public_ip }}
+      app_private_ip: ${{ steps.out.outputs.app_private_ip }}
+      db_public_ip: ${{ steps.out.outputs.db_public_ip }}
+      db_private_ip: ${{ steps.out.outputs.db_private_ip }}
+      app_sg_id: ${{ steps.out.outputs.app_sg_id }}
+      db_sg_id: ${{ steps.out.outputs.db_sg_id }}
+      app_data_volume_id: ${{ steps.out.outputs.app_data_volume_id }}
+      db_data_volume_id: ${{ steps.out.outputs.db_data_volume_id }}
+      backup_bucket: ${{ steps.out.outputs.backup_bucket }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.12"
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: terraform init (state no S3, um arquivo por ambiente)
+        run: >
+          terraform init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="key=smart-construction/${{ inputs.environment }}.tfstate"
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: terraform validate
+        run: terraform validate
+
+      - name: terraform plan
+        run: |
+          if [ "${{ inputs.action }}" = "destroy" ]; then
+            terraform plan -destroy -input=false -out=tfplan
+          else
+            terraform plan -input=false -out=tfplan
+          fi
+
+      - name: terraform apply
+        if: inputs.action != 'plan'
+        run: terraform apply -input=false tfplan
+
+      - name: Exportar outputs para o Ansible
+        id: out
+        if: inputs.action == 'apply'
+        run: |
+          for k in app_public_ip app_private_ip db_public_ip db_private_ip app_sg_id db_sg_id \
+                   app_data_volume_id db_data_volume_id backup_bucket; do
+            echo "$k=$(terraform output -raw $k)" >> "$GITHUB_OUTPUT"
+          done
+          terraform output
+
+  ansible:
+    name: Ansible (configuração / ${{ inputs.environment }})
+    needs: terraform
+    if: inputs.action == 'apply'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ansible
+    env:
+      ANSIBLE_FORCE_COLOR: "1"
+      # parâmetros da pipeline
+      ENV_NAME: ${{ inputs.environment }}
+      DOCKER_TAG: ${{ inputs.docker_tag }}
+      UPDATE_OS: ${{ inputs.update_os }}
+      EXTRA_PACKAGES: ${{ inputs.extra_packages }}
+      RUN_BACKUP: ${{ inputs.run_backup }}
+      # saídas do Terraform
+      BACKUP_BUCKET: ${{ needs.terraform.outputs.backup_bucket }}
+      # variáveis (não sensíveis)
+      STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      DUCKDNS_SUBDOMAIN: ${{ vars.DUCKDNS_SUBDOMAIN }}
+      LETSENCRYPT_EMAIL: ${{ vars.LETSENCRYPT_EMAIL }}
+      # segredos (o Ansible lê com lookup('env') e grava com no_log)
+      SMART_SECRETS_SEED: ${{ secrets.SMART_SECRETS_SEED }}
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+      DUCKDNS_TOKEN: ${{ secrets.DUCKDNS_TOKEN }}
+      GHCR_USER: ${{ secrets.GHCR_USER }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Dono do registry em minúsculas
+        run: echo "GHCR_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Instalar Ansible
+        run: |
+          pipx install --include-deps ansible
+          ansible --version
+
+      - name: Configurar chave SSH
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          install -m 600 /dev/null ~/.ssh/pm04
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/pm04
+
+      - name: Liberar SSH temporariamente só para o IP deste runner
+        id: ssh
+        run: |
+          RUNNER_IP=$(curl -fsS https://checkip.amazonaws.com)
+          echo "runner_ip=$RUNNER_IP" >> "$GITHUB_OUTPUT"
+          for SG in "${{ needs.terraform.outputs.app_sg_id }}" "${{ needs.terraform.outputs.db_sg_id }}"; do
+            aws ec2 authorize-security-group-ingress --group-id "$SG" \
+              --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$RUNNER_IP/32,Description=github-runner-temp}]"
+          done
+          echo "SSH liberado para $RUNNER_IP/32"
+
+      - name: Gerar inventário a partir dos outputs do Terraform
+        run: |
+          mkdir -p inventory
+          cat > inventory/hosts.ini <<EOF
+          [app]
+          app ansible_host=${{ needs.terraform.outputs.app_public_ip }} private_ip=${{ needs.terraform.outputs.app_private_ip }} data_volume_id=${{ needs.terraform.outputs.app_data_volume_id }}
+
+          [db]
+          db ansible_host=${{ needs.terraform.outputs.db_public_ip }} private_ip=${{ needs.terraform.outputs.db_private_ip }} data_volume_id=${{ needs.terraform.outputs.db_data_volume_id }}
+
+          [all:vars]
+          ansible_user=ubuntu
+          ansible_ssh_private_key_file=~/.ssh/pm04
+          ansible_python_interpreter=/usr/bin/python3
+          EOF
+          cat inventory/hosts.ini
+
+      - name: Aguardar as VMs aceitarem SSH
+        run: ansible all -m ansible.builtin.wait_for_connection -a "timeout=300"
+
+      - name: Executar playbook
+        run: ansible-playbook playbook.yml
+
+      - name: Fechar o SSH temporário
+        if: always() && steps.ssh.outputs.runner_ip != ''
+        run: |
+          for SG in "${{ needs.terraform.outputs.app_sg_id }}" "${{ needs.terraform.outputs.db_sg_id }}"; do
+            aws ec2 revoke-security-group-ingress --group-id "$SG" \
+              --protocol tcp --port 22 --cidr "${{ steps.ssh.outputs.runner_ip }}/32" || true
+          done
+          echo "SSH fechado"
+
+      - name: Resumo
+        if: success()
+        run: |
+          {
+            echo "### Ambiente ${{ inputs.environment }} atualizado"
+            echo "- URL: https://${DUCKDNS_SUBDOMAIN}.duckdns.org"
+            echo "- Imagens: ${DOCKER_TAG}"
+            echo "- update_os: ${UPDATE_OS} | extra_packages: ${EXTRA_PACKAGES}"
+          } >> "$GITHUB_STEP_SUMMARY"

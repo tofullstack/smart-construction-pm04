@@ -1,0 +1,74 @@
+# Constrói as imagens da aplicação e publica no GHCR com tag explícita (sha-xxxxxxx).
+# Roda depois que o "Application CI" (que veio no repositório) passar na main:
+# é a integração com o fluxo de CI existente.
+name: build-images
+
+on:
+  workflow_run:
+    workflows: ["Application CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # Mesmos parâmetros de build do compose.yaml original
+          - service: web
+            context: .
+            dockerfile: ./Dockerfile
+            target: runner
+            build_args: |
+              NEXT_PUBLIC_ASSETS_BASE_URL=/assets
+              ASSETS_PROXY_URL=http://storage:8333/smart-assets
+              API_PROXY_URL=http://api:8000
+          - service: api
+            context: ./backend
+            dockerfile: ./backend/Dockerfile
+            target: runtime
+            build_args: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Calcular tag e dono do registry
+        id: meta
+        shell: bash
+        run: |
+          SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+          echo "tag=sha-${SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          build-args: ${{ matrix.build_args }}
+          push: true
+          tags: ghcr.io/${{ steps.meta.outputs.owner }}/smart-${{ matrix.service }}:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Resumo
+        run: |
+          echo "Publicado: ghcr.io/${{ steps.meta.outputs.owner }}/smart-${{ matrix.service }}:${{ steps.meta.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Use **docker_tag = ${{ steps.meta.outputs.tag }}** no workflow deploy." >> "$GITHUB_STEP_SUMMARY"

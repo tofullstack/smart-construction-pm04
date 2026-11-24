@@ -1,0 +1,23 @@
+---
+- name: Script de backup ({{ backup_kind }})
+  ansible.builtin.template:
+    src: backup.sh.j2
+    dest: /usr/local/bin/smart-backup.sh
+    mode: "0750"
+
+- name: Backup diário às 03:00
+  ansible.builtin.cron:
+    name: "smart-construction backup"
+    minute: "0"
+    hour: "3"
+    job: "/usr/local/bin/smart-backup.sh >> /var/log/smart-backup.log 2>&1"
+
+- name: Executar backup agora (parâmetro run_backup da pipeline)
+  ansible.builtin.command: /usr/local/bin/smart-backup.sh
+  when: run_backup | bool
+  register: backup_now
+
+- name: Resultado do backup
+  ansible.builtin.debug:
+    var: backup_now.stdout_lines
+  when: run_backup | bool

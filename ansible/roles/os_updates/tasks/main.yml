@@ -1,0 +1,26 @@
+---
+- name: Listar atualizações pendentes (informativo)
+  ansible.builtin.command: apt list --upgradable
+  register: upgradable
+  changed_when: false
+
+- name: Mostrar quantidade de pacotes atualizáveis
+  ansible.builtin.debug:
+    msg: "{{ (upgradable.stdout_lines | length) - 1 }} pacote(s) com atualização disponível (update_os={{ update_os }})"
+
+- name: Aplicar atualizações do sistema operacional
+  ansible.builtin.apt:
+    upgrade: safe
+    update_cache: true
+  when: update_os | bool
+
+- name: Verificar se é necessário reiniciar
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: reboot_required
+  when: update_os | bool
+
+- name: Reiniciar a VM (contêineres voltam sozinhos com restart unless-stopped)
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+  when: update_os | bool and reboot_required.stat.exists

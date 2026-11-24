@@ -1,0 +1,58 @@
+---
+- name: Conferir que todos os serviços esperados estão em execução
+  ansible.builtin.command: docker compose ps --services --status running
+  args:
+    chdir: "{{ app_dir }}"
+  register: running
+  changed_when: false
+  until: app_services_expected | difference(running.stdout_lines) | length == 0
+  retries: 12
+  delay: 10
+
+# Smoke test do próprio projeto (scripts/smoke.mjs): páginas, API/banco,
+# formulário, versões dos aceites e 401 no painel sem login.
+- name: Smoke test do projeto pela rede interna
+  ansible.builtin.command: >
+    docker compose exec -T -e SMOKE_BASE_URL=http://gateway:8080
+    web node /app/scripts/smoke.mjs
+  args:
+    chdir: "{{ app_dir }}"
+  register: smoke
+  changed_when: false
+  failed_when: "'\"result\":\"PASS\"' not in smoke.stdout"
+  retries: 6
+  delay: 10
+  until: "'\"result\":\"PASS\"' in smoke.stdout"
+
+- name: Página inicial responde por HTTPS (testado de fora, a partir do runner)
+  ansible.builtin.uri:
+    url: "https://{{ domain }}/"
+    status_code: 200
+  delegate_to: localhost
+  become: false
+  register: home
+  until: home.status == 200
+  retries: 12
+  delay: 10
+
+- name: API e banco prontos por HTTPS
+  ansible.builtin.uri:
+    url: "https://{{ domain }}/api/v1/health/ready"
+    status_code: 200
+  delegate_to: localhost
+  become: false
+
+- name: Área administrativa bloqueada sem login (401)
+  ansible.builtin.uri:
+    url: "https://{{ domain }}/api/v1/admin/cadastros"
+    status_code: 401
+  delegate_to: localhost
+  become: false
+
+- name: HTTP redireciona para HTTPS
+  ansible.builtin.uri:
+    url: "http://{{ domain }}/"
+    follow_redirects: none
+    status_code: 301
+  delegate_to: localhost
+  become: false

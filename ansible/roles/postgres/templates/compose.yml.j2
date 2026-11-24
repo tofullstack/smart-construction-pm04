@@ -1,0 +1,38 @@
+# Gerado pelo Ansible — não edite na VM.
+# Serviço "db" do compose.yaml original, com a porta publicada só no IP privado.
+name: smart-construction
+
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: {{ postgres_db }}
+      POSTGRES_USER: {{ postgres_migrator }}
+      POSTGRES_PASSWORD_FILE: /run/secrets/migration_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports:
+      - "{{ private_ip }}:5432:5432"
+    volumes:
+      - backend-data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-api-role.sh:ro
+    secrets:
+      - migration_password
+      - runtime_password
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U {{ postgres_migrator }} -d {{ postgres_db }}']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: local
+
+volumes:
+  backend-data:
+
+secrets:
+  migration_password:
+    file: ./secrets/migration-password
+  runtime_password:
+    file: ./secrets/api-password

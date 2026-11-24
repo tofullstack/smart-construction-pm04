@@ -1,0 +1,66 @@
+# Restaura o último backup em um PostgreSQL descartável dentro do runner.
+# Ambiente isolado: nunca toca no banco principal.
+name: restore-test
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "De qual ambiente restaurar o backup"
+        type: choice
+        options: [dev, homolog, prod]
+        default: dev
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: restore
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+
+      - name: Baixar últimos backups
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="smart-${{ inputs.environment }}-backup-${ACCOUNT}"
+          aws s3 ls "s3://$BUCKET/" --recursive
+          aws s3 cp "s3://$BUCKET/postgres/latest.dump" ./latest.dump
+          aws s3 cp "s3://$BUCKET/storage/latest.tgz" ./storage.tgz || echo "sem backup de storage"
+          ls -lh
+
+      - name: Restaurar banco no PostgreSQL isolado
+        run: |
+          PG="docker run --rm --network host -e PGPASSWORD=restore -v $PWD:/b postgres:17"
+          $PG createdb -h localhost -U postgres restore_test
+          $PG pg_restore -h localhost -U postgres -d restore_test --no-owner --no-privileges /b/latest.dump
+          echo "### Tabelas restauradas" >> "$GITHUB_STEP_SUMMARY"
+          $PG psql -h localhost -U postgres -d restore_test -c '\dt+ smart.*' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Conferir contagem de registros
+        run: |
+          PG="docker run --rm --network host -e PGPASSWORD=restore postgres:17"
+          # Tabelas do schema smart (cadastros, profissões, auditoria...) com contagem de linhas
+          $PG psql -h localhost -U postgres -d restore_test -c "
+            ANALYZE;
+            SELECT relname AS tabela, n_live_tup AS linhas
+            FROM pg_stat_user_tables WHERE schemaname = 'smart' ORDER BY relname;" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Conferir backup das imagens
+        run: |
+          if [ -f storage.tgz ]; then
+            tar -tzf storage.tgz | head -50
+            echo "Arquivos no backup de imagens: $(tar -tzf storage.tgz | wc -l)" >> "$GITHUB_STEP_SUMMARY"
+          fi

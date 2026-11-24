@@ -1,0 +1,35 @@
+---
+- name: Atualizar cache do apt
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  changed_when: false
+
+- name: Instalar pacotes base e extras informados na pipeline
+  ansible.builtin.apt:
+    name: "{{ base_packages + (extra_packages | split(',') | map('trim') | select | list) }}"
+    state: present
+
+- name: Instalar AWS CLI (snap; o Ubuntu 24.04 não tem pacote apt)
+  community.general.snap:
+    name: aws-cli
+    classic: true
+
+- name: Definir fuso horário
+  community.general.timezone:
+    name: America/Sao_Paulo
+
+- name: Criar arquivo de swap de 2 GB (VMs pequenas)
+  ansible.builtin.command: fallocate -l 2G /swapfile
+  args:
+    creates: /swapfile
+  register: swapfile
+
+- name: Ativar swap
+  ansible.builtin.shell: chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+  when: swapfile.changed
+
+- name: Tornar o swap persistente
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    line: "/swapfile none swap sw 0 0"

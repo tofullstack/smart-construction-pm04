@@ -1,0 +1,19 @@
+---
+backup_kind: storage
+
+# Serviços que precisam estar "running" ao final
+app_services_expected:
+  - gateway
+  - web
+  - api
+  - storage
+  - private-storage
+
+# Administrador criado na primeira execução (senha vem do secret ADMIN_PASSWORD)
+admin_login: admin
+admin_name: Administrador do laboratório
+
+# Versões dos aceites (iguais ao .env.example)
+terms_version: termos-lab-2026-11-11
+privacy_version: privacidade-lab-2026-11-11
+assets_bucket: smart-assets

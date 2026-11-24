@@ -1,0 +1,23 @@
+---
+# O volume EBS aparece como NVMe; o link por ID é estável entre reinícios.
+- name: Descobrir o dispositivo do disco de dados
+  ansible.builtin.set_fact:
+    data_device: "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_{{ data_volume_id | replace('-', '') }}"
+
+- name: Aguardar o disco ser anexado
+  ansible.builtin.wait_for:
+    path: "{{ data_device }}"
+    timeout: 180
+
+- name: Criar sistema de arquivos (só se o disco estiver vazio; nunca formata de novo)
+  community.general.filesystem:
+    fstype: ext4
+    dev: "{{ data_device }}"
+
+- name: Montar em {{ data_dir }} (persistente no fstab)
+  ansible.posix.mount:
+    path: "{{ data_dir }}"
+    src: "{{ data_device }}"
+    fstype: ext4
+    opts: defaults,nofail
+    state: mounted

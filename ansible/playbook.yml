@@ -1,0 +1,35 @@
+---
+- name: Base comum (SO, pacotes, disco de dados, Docker)
+  hosts: all
+  become: true
+  pre_tasks:
+    - name: Validar parâmetros e segredos recebidos da pipeline
+      ansible.builtin.assert:
+        that:
+          - docker_tag | length > 0
+          - backup_bucket | length > 0
+          - duckdns_subdomain | length > 0
+          - secret_seed | length >= 32
+        fail_msg: "Faltam parâmetros: docker_tag, backup_bucket, DUCKDNS_SUBDOMAIN ou SMART_SECRETS_SEED (>= 32 caracteres)"
+      run_once: true
+  roles:
+    - common
+    - os_updates
+    - data_disk
+    - docker
+
+- name: Banco de dados (VM exclusiva, sem porta pública)
+  hosts: db
+  become: true
+  roles:
+    - postgres
+    - backup
+
+- name: Aplicação (Nginx HTTPS, Next.js, API, SeaweedFS)
+  hosts: app
+  become: true
+  roles:
+    - tls
+    - app
+    - backup
+    - healthcheck

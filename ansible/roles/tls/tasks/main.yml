@@ -1,0 +1,63 @@
+---
+- name: Apontar o DuckDNS para o IP público da VM
+  ansible.builtin.uri:
+    url: "https://www.duckdns.org/update?domains={{ duckdns_subdomain }}&token={{ lookup('env', 'DUCKDNS_TOKEN') }}&ip={{ ansible_host }}"
+    return_content: true
+  register: duck
+  changed_when: false
+  failed_when: "'OK' not in duck.content"
+  no_log: true
+
+- name: Aguardar o DNS resolver para o IP da VM
+  ansible.builtin.command: "dig +short {{ domain }} @1.1.1.1"
+  register: dns
+  until: dns.stdout | trim == ansible_host
+  retries: 30
+  delay: 10
+  changed_when: false
+
+- name: Verificar se o certificado já existe
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
+  register: cert
+
+# O Let's Encrypt limita a 5 certificados iguais por semana; o cache no S3
+# evita estourar o limite quando o ambiente é destruído e recriado.
+- name: Restaurar certificado do cache no S3 (se houver)
+  ansible.builtin.shell: >
+    /snap/bin/aws s3 cp s3://{{ state_bucket }}/certs/{{ env_name }}/letsencrypt.tgz /tmp/le.tgz
+    && tar -xzf /tmp/le.tgz -C /etc
+  when: not cert.stat.exists
+  register: cert_restore
+  failed_when: false
+  changed_when: cert_restore.rc == 0
+
+- name: Emitir certificado Let's Encrypt (somente se ainda não existir)
+  ansible.builtin.command: >
+    certbot certonly --standalone --non-interactive --agree-tos
+    -m {{ letsencrypt_email }} -d {{ domain }}
+  args:
+    creates: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
+  register: certbot_run
+
+- name: Guardar o certificado novo no cache do S3
+  ansible.builtin.shell: >
+    tar -czf /tmp/le.tgz -C /etc letsencrypt
+    && /snap/bin/aws s3 cp /tmp/le.tgz s3://{{ state_bucket }}/certs/{{ env_name }}/letsencrypt.tgz
+  when: certbot_run.changed
+
+- name: Hook de renovação - parar o gateway (libera a porta 80)
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/pre/stop-gateway.sh
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      docker compose --project-directory {{ app_dir }} stop gateway
+
+- name: Hook de renovação - subir o gateway de novo
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/post/start-gateway.sh
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      docker compose --project-directory {{ app_dir }} start gateway

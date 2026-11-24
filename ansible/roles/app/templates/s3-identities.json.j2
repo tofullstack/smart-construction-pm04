@@ -1,0 +1,14 @@
+{{ {
+  "identities": [
+    {
+      "name": "bootstrap",
+      "credentials": [{"accessKey": smart_secrets['s3-bootstrap-access-key'], "secretKey": smart_secrets['s3-bootstrap-secret-key']}],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    },
+    {
+      "name": "api",
+      "credentials": [{"accessKey": smart_secrets['s3-api-access-key'], "secretKey": smart_secrets['s3-api-secret-key']}],
+      "actions": ["Read:smart-cadastros-private", "Write:smart-cadastros-private", "List:smart-cadastros-private"]
+    }
+  ]
+} | to_json }}
