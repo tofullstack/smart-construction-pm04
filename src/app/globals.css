@@ -1,4 +1,5 @@
-@import 'tailwindcss';
+@import 'tailwindcss' source(none);
+@source '../../src';
 @theme static {
   --font-sans: 'Public Sans Variable', 'Public Sans', sans-serif;
   --color-brand-50: #f0fdf4;
