@@ -75,7 +75,7 @@ resource "aws_security_group" "db" {
 
 resource "aws_vpc_security_group_ingress_rule" "app_http" {
   security_group_id = aws_security_group.app.id
-  description       = "HTTP (redireciona para HTTPS e valida Let's Encrypt)"
+  description       = "HTTP (redireciona para HTTPS e valida Lets Encrypt)"
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "tcp"
   from_port         = 80
