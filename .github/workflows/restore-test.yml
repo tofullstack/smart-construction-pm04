@@ -61,6 +61,7 @@ jobs:
       - name: Conferir backup das imagens
         run: |
           if [ -f storage.tgz ]; then
-            tar -tzf storage.tgz | head -50
-            echo "Arquivos no backup de imagens: $(tar -tzf storage.tgz | wc -l)" >> "$GITHUB_STEP_SUMMARY"
+            tar -tzf storage.tgz > lista.txt
+            head -50 lista.txt
+            echo "Arquivos no backup de imagens: $(wc -l < lista.txt)" >> "$GITHUB_STEP_SUMMARY"
           fi
