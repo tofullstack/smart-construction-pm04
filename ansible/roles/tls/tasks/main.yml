@@ -9,7 +9,7 @@
   no_log: true
 
 - name: Aguardar o DNS resolver para o IP da VM
-  ansible.builtin.command: "dig +short {{ domain }} @1.1.1.1"
+  ansible.builtin.command: 'dig +short {{ domain }} @1.1.1.1'
   register: dns
   until: dns.stdout | trim == ansible_host
   retries: 30
@@ -18,10 +18,10 @@
 
 - name: Verificar se o certificado já existe
   ansible.builtin.stat:
-    path: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
+    path: '/etc/letsencrypt/live/{{ domain }}/fullchain.pem'
   register: cert
 
-# O Let's Encrypt limita a 5 certificados iguais por semana; o cache no S3
+# O lets Encrypt limita a 5 certificados iguais por semana; o cache no S3
 # evita estourar o limite quando o ambiente é destruído e recriado.
 - name: Restaurar certificado do cache no S3 (se houver)
   ansible.builtin.shell: >
@@ -32,12 +32,14 @@
   failed_when: false
   changed_when: cert_restore.rc == 0
 
-- name: Emitir certificado Let's Encrypt (somente se ainda não existir)
+- name: Emitir certificado Lets Encrypt (somente se ainda não existir)
   ansible.builtin.command: >
     certbot certonly --standalone --non-interactive --agree-tos
     -m {{ letsencrypt_email }} -d {{ domain }}
+    --pre-hook "docker compose --project-directory {{ app_dir }} stop gateway || true"
+    --post-hook "docker compose --project-directory {{ app_dir }} start gateway || true"
   args:
-    creates: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
+    creates: '/etc/letsencrypt/live/{{ domain }}/fullchain.pem'
   register: certbot_run
 
 - name: Guardar o certificado novo no cache do S3
@@ -49,7 +51,7 @@
 - name: Hook de renovação - parar o gateway (libera a porta 80)
   ansible.builtin.copy:
     dest: /etc/letsencrypt/renewal-hooks/pre/stop-gateway.sh
-    mode: "0755"
+    mode: '0755'
     content: |
       #!/bin/sh
       docker compose --project-directory {{ app_dir }} stop gateway
@@ -57,7 +59,7 @@
 - name: Hook de renovação - subir o gateway de novo
   ansible.builtin.copy:
     dest: /etc/letsencrypt/renewal-hooks/post/start-gateway.sh
-    mode: "0755"
+    mode: '0755'
     content: |
       #!/bin/sh
       docker compose --project-directory {{ app_dir }} start gateway
