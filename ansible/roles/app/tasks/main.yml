@@ -2,39 +2,39 @@
 # ------------------------------------------------------------ arquivos
 - name: Diretórios da aplicação
   ansible.builtin.file:
-    path: "{{ item.path }}"
+    path: '{{ item.path }}'
     state: directory
-    mode: "{{ item.mode }}"
+    mode: '{{ item.mode }}'
   loop:
-    - { path: "{{ app_dir }}", mode: "0750" }
-    - { path: "{{ app_dir }}/nginx", mode: "0755" }
-    - { path: "{{ app_dir }}/storage", mode: "0755" }
-    - { path: "{{ app_dir }}/backend-storage", mode: "0755" }
-    - { path: "{{ app_dir }}/seed", mode: "0755" }
-    - { path: "{{ app_dir }}/.secrets", mode: "0700" }
-    - { path: "{{ app_dir }}/.secrets/backend", mode: "0700" }
-    - { path: "{{ app_dir }}/.secrets/storage", mode: "0700" }
+    - { path: '{{ app_dir }}', mode: '0750' }
+    - { path: '{{ app_dir }}/nginx', mode: '0755' }
+    - { path: '{{ app_dir }}/storage', mode: '0755' }
+    - { path: '{{ app_dir }}/backend-storage', mode: '0755' }
+    - { path: '{{ app_dir }}/seed', mode: '0755' }
+    - { path: '{{ app_dir }}/.secrets', mode: '0700' }
+    - { path: '{{ app_dir }}/.secrets/backend', mode: '0700' }
+    - { path: '{{ app_dir }}/.secrets/storage', mode: '0700' }
 
 - name: Scripts do SeaweedFS editorial (docker/storage do repositório)
   ansible.builtin.copy:
-    src: "{{ repo_root }}/docker/storage/{{ item }}"
-    dest: "{{ app_dir }}/storage/{{ item }}"
-    mode: "0644"
+    src: '{{ repo_root }}/docker/storage/{{ item }}'
+    dest: '{{ app_dir }}/storage/{{ item }}'
+    mode: '0644'
   loop: [start.sh, init.sh, cli.sh]
 
 - name: Script do SeaweedFS privado (backend/docker do repositório)
   ansible.builtin.copy:
-    src: "{{ repo_root }}/backend/docker/private-storage.sh"
-    dest: "{{ app_dir }}/backend-storage/private-storage.sh"
-    mode: "0644"
+    src: '{{ repo_root }}/backend/docker/private-storage.sh'
+    dest: '{{ app_dir }}/backend-storage/private-storage.sh'
+    mode: '0644'
 
 # ------------------------------------------------------------ segredos
 # Mesmos arquivos que o setup local gera em .secrets/, derivados do SMART_SECRETS_SEED.
 - name: Credenciais do backend
   ansible.builtin.copy:
-    dest: "{{ app_dir }}/.secrets/backend/{{ item }}"
+    dest: '{{ app_dir }}/.secrets/backend/{{ item }}'
     content: "{{ smart_secrets[item] }}\n"
-    mode: "0444"
+    mode: '0444'
   loop:
     - migration-password
     - api-password
@@ -47,41 +47,41 @@
 
 - name: Credenciais do armazenamento editorial
   ansible.builtin.copy:
-    dest: "{{ app_dir }}/.secrets/storage/{{ item }}"
+    dest: '{{ app_dir }}/.secrets/storage/{{ item }}'
     content: "{{ smart_secrets['storage-' ~ item] }}\n"
-    mode: "0444"
+    mode: '0444'
   loop: [access-key, secret-key, admin-password]
   no_log: true
 
 - name: Identidades S3 do armazenamento privado
   ansible.builtin.template:
     src: s3-identities.json.j2
-    dest: "{{ app_dir }}/.secrets/backend/s3-identities.json"
-    mode: "0444"
+    dest: '{{ app_dir }}/.secrets/backend/s3-identities.json'
+    mode: '0444'
   no_log: true
 
 # ------------------------------------------------------------ compose e gateway
 - name: Compose de produção (imagens do GHCR com a tag da pipeline)
   ansible.builtin.template:
     src: compose.yml.j2
-    dest: "{{ app_dir }}/compose.yml"
-    mode: "0644"
+    dest: '{{ app_dir }}/compose.yml'
+    mode: '0644'
 
 - name: Configuração do gateway Nginx com HTTPS
   ansible.builtin.template:
     src: nginx.conf.j2
-    dest: "{{ app_dir }}/nginx/default.conf"
-    mode: "0644"
+    dest: '{{ app_dir }}/nginx/default.conf'
+    mode: '0644'
   register: nginx_conf
 
 # ------------------------------------------------------------ preparação (uma vez)
 - name: Verificar se a carga inicial das imagens já foi feita
   ansible.builtin.stat:
-    path: "{{ data_dir }}/.storage-initialized"
+    path: '{{ data_dir }}/.storage-initialized'
   register: storage_marker
 
 - name: Empacotar public/images do repositório (carga inicial)
-  ansible.builtin.command: "tar -czf /tmp/smart-seed.tgz -C {{ repo_root }}/public/images ."
+  ansible.builtin.command: 'tar -czf /tmp/smart-seed.tgz -C {{ repo_root }}/public/images .'
   delegate_to: localhost
   become: false
   changed_when: true
@@ -90,12 +90,12 @@
 - name: Enviar imagens da carga inicial
   ansible.builtin.unarchive:
     src: /tmp/smart-seed.tgz
-    dest: "{{ app_dir }}/seed"
+    dest: '{{ app_dir }}/seed'
   when: not storage_marker.stat.exists
 
 - name: Subir os armazenamentos primeiro
   community.docker.docker_compose_v2:
-    project_src: "{{ app_dir }}"
+    project_src: '{{ app_dir }}'
     services: [storage, private-storage]
     state: present
     pull: missing
@@ -108,8 +108,8 @@
     docker compose run --rm private-storage-init
     touch {{ data_dir }}/.private-storage-initialized
   args:
-    chdir: "{{ app_dir }}"
-    creates: "{{ data_dir }}/.private-storage-initialized"
+    chdir: '{{ app_dir }}'
+    creates: '{{ data_dir }}/.private-storage-initialized'
 
 - name: Criar bucket editorial e carregar imagens (apenas uma vez)
   ansible.builtin.shell: |
@@ -117,20 +117,20 @@
     docker compose run --rm storage-init
     touch {{ data_dir }}/.storage-initialized
   args:
-    chdir: "{{ app_dir }}"
-    creates: "{{ data_dir }}/.storage-initialized"
+    chdir: '{{ app_dir }}'
+    creates: '{{ data_dir }}/.storage-initialized'
 
 - name: Aplicar migrations do banco (Alembic, usuário smart_migrator)
   ansible.builtin.command: docker compose run --rm api-migrate
   args:
-    chdir: "{{ app_dir }}"
+    chdir: '{{ app_dir }}'
   register: migrate
   changed_when: "'Running upgrade' in (migrate.stdout + migrate.stderr)"
 
 # ------------------------------------------------------------ aplicação
 - name: Subir/atualizar todos os serviços (recria só o que mudou, por exemplo nova docker_tag)
   community.docker.docker_compose_v2:
-    project_src: "{{ app_dir }}"
+    project_src: '{{ app_dir }}'
     state: present
     pull: missing
     remove_orphans: true
@@ -141,8 +141,8 @@
 - name: Recarregar o Nginx se só a configuração mudou
   ansible.builtin.command: docker compose exec -T gateway nginx -s reload
   args:
-    chdir: "{{ app_dir }}"
-    when: nginx_conf.changed
+    chdir: '{{ app_dir }}'
+  when: nginx_conf.changed
   changed_when: true
 
 # ------------------------------------------------------------ administrador e profissões
@@ -153,8 +153,8 @@
       | docker compose exec -T api python -m app.auth.cli create \
           --login {{ admin_login }} --nome "{{ admin_name }}"
   args:
-    chdir: "{{ app_dir }}"
-    creates: "{{ data_dir }}/.admin-created"
+    chdir: '{{ app_dir }}'
+    creates: '{{ data_dir }}/.admin-created'
   environment:
     ADMIN_PASSWORD: "{{ lookup('env', 'ADMIN_PASSWORD') }}"
   register: admin_create
@@ -163,9 +163,9 @@
 
 - name: Marcar administrador como criado
   ansible.builtin.file:
-    path: "{{ data_dir }}/.admin-created"
+    path: '{{ data_dir }}/.admin-created'
     state: touch
-    mode: "0644"
+    mode: '0644'
   when: admin_create.changed
 
 - name: Carregar as 25 profissões iniciais (apenas uma vez)
@@ -174,5 +174,5 @@
     docker compose exec -T api python -m app.profissoes.cli --apply --admin-login {{ admin_login }}
     touch {{ data_dir }}/.professions-loaded
   args:
-    chdir: "{{ app_dir }}"
-    creates: "{{ data_dir }}/.professions-loaded"
+    chdir: '{{ app_dir }}'
+    creates: '{{ data_dir }}/.professions-loaded'
