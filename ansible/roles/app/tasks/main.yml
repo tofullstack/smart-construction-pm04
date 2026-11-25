@@ -142,7 +142,7 @@
   ansible.builtin.command: docker compose exec -T gateway nginx -s reload
   args:
     chdir: "{{ app_dir }}"
-  when: nginx_conf.changed and not compose_up.changed
+    when: nginx_conf.changed
   changed_when: true
 
 # ------------------------------------------------------------ administrador e profissões
