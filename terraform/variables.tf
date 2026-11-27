@@ -51,11 +51,11 @@ variable "vpc_cidr" {
 variable "app_data_size" {
   description = "Tamanho (GB) do disco de dados da VM da aplicação (imagens/SeaweedFS)"
   type        = number
-  default     = 20
+  default     = 25
 }
 
 variable "db_data_size" {
   description = "Tamanho (GB) do disco de dados do PostgreSQL"
   type        = number
-  default     = 20
+  default     = 25
 }

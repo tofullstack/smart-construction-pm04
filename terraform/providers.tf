@@ -17,6 +17,7 @@ provider "aws" {
       Project     = "smart-construction"
       Environment = var.environment
       ManagedBy   = "terraform"
+      Version     = "v2"
     }
   }
 }

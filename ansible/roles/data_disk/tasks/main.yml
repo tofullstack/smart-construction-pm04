@@ -21,3 +21,19 @@
     fstype: ext4
     opts: defaults,nofail
     state: mounted
+
+# Disco ampliado pelo Terraform: estende o ext4 online (resize2fs), sem desmontar nem apagar dados.
+- name: Expandir o sistema de arquivos até o tamanho atual do disco
+  community.general.filesystem:
+    fstype: ext4
+    dev: "{{ data_device }}"
+    resizefs: true
+
+- name: Espaço do disco de dados
+  ansible.builtin.command: df -h {{ data_dir }}
+  register: data_df
+  changed_when: false
+
+- name: Mostrar espaço do disco de dados
+  ansible.builtin.debug:
+    msg: "{{ data_df.stdout_lines }}"

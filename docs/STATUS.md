@@ -90,6 +90,12 @@ Por solicitação do usuário, mudanças organizadas em dois commits locais: apl
 
 Conferidos os arquivos do índice contra as listas revisadas e executado `git diff --cached --check` em cada grupo. O PDF foi marcado como binário em `.gitattributes` para preservar seu conteúdo durante a normalização de finais de linha; conferida a igualdade dos bytes entre arquivo local e índice. A formatação da documentação foi aprovada com Prettier. As suítes e o build não foram repetidos nesta etapa; as verificações da aplicação e do PDF estão registradas acima. Nenhum push ou publicação foi solicitado.
 
+## Cenário 2 (atualização) — preparação local — 27/11/2026
+
+Preparada uma atualização pequena para o Cenário 2 do PM-04: linha “Versão 2.0 · PM-04 · Bubikas Holdings” no rodapé (`src/shared/components/footer.tsx`) e tag `Version = "v2"` em `default_tags` (`terraform/providers.tf`), que altera apenas tags in-place, sem recriar recursos. Executados localmente `tsc --noEmit`, ESLint e Prettier do rodapé e Vitest (85 testes aprovados). Terraform não está instalado nesta máquina; `fmt`/`validate`/`plan` ficam a cargo da pipeline. Build, setup e E2E não foram repetidos. Sem commit, push ou execução em nuvem nesta etapa.
+
+Como o plano gratuito da AWS não aceita trocar `t3.micro` por `t3.small`, o Cenário 2 passou a ampliar os discos EBS de dados de 20 para 25 GB (`app_data_size`/`db_data_size` em `terraform/variables.tf`), alteração in-place sem parar as VMs. A role `data_disk` ganhou `resizefs: true`, que estende o ext4 online e é idempotente, além de exibir `df -h` do disco. YAML validado com PyYAML; Ansible e Terraform não estão instalados localmente, então lint, `validate` e `plan` dependem da pipeline.
+
 ## Pendências reais
 
 O CI não foi executado no GitHub. O fluxo persistente completo de cadastro/empresa/aprovação pelo navegador continua pendente; o E2E e o smoke desta alteração não criam cadastros.
